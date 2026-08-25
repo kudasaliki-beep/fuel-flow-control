@@ -140,5 +140,31 @@ After the step (mass flow = 80 kg/h), `energy_flow = 3,360 MJ/h` and
 violation with nothing to correct it, which is what Stage 2's
 controller needs to prevent.
 
+See `src/stage1.c` for the implementation.
+
+## Stage 2: Fuel Limiter (Min-Select Control Logic)
+
+**Goal:** add a controller that prevents the ceiling violation Stage 1 demonstrated, by capping the mass flow that's actually used rather than letting driver demand pass through.
+
+**Variable change:** Renamed mass_flow to driver_demand, so the signature itself makes clear it's the pre-limit requested value from the drive pressing the pedal.
+
+**Architecture research:** real engine control uses a "min-select" (low-select) pattern: the ECU compares driver demand (driver_demand) against a regulatory limit (mass_flow_limit) and always uses whichever is lower: final_mass_flow = min(driver_demand, regulatory_limit).
+
+**Implementation: apply_fuel_limiter(driver_demand, mass_flow_limit) function,  takes both values as parameters rather than reading a constant internally, so it doesn't depend on anything outside its own inputs. This makes it testable and reusable (e.g. with a different limit later, without changing the function itself).
+
+**Simplification:** mass_flow_limit here is the flat 3,000 MJ/h ceiling converted to a mass flow value (CEILING / ENERGY_DENSITY), not the real RPM-dependent regulatory limit from the Overview section above (yet, see Stretch Goals below.)
+
+**Result:** before the step, unchanged from Stage 1 (ceiling_comparison = −3000 MJ/h). After the step, driver demand is still 80 kg/h, but actual_mass_flow is capped at 71.428571 kg/h, giving energy_flow = 3,000 MJ/h exactly and ceiling_comparison = 0 MJ/h - zero violation.
+
+**floating point precision:** mass_flow_limit is derived by division and then multiplied back, floating-point in C rounding could produce a tiny non-zero result (e.g. 1e-10) instead of exactly 0, even with no real violation. Worth using a small tolerance rather than a strict > 0  later.
+
+**Stretch goals:**
+- Dynamic driver demand — currently a hardcoded step (0 → 80 kg/h at 5ms). Making this a flexible test scenario (different demand shapes, ramps, multiple runs) is deferred to Stage 3
+- User-input fuel compounds via scanf — would let different teams' energy density values be tested interactively. Deferred because it would reopen the "energy density is a fixed constant for the whole project" design decision, which should be a deliberate revision
+- RPM-dependent regulatory limit and air-density- limited flow (from atmospheric intake pressure regulations, FIA Article 5.5.2) both deferred until the core controller architecture above is solid.
+
+See `src/stage2.c` for the implementation.
+
+
 
 
