@@ -54,9 +54,6 @@ mechanically difficult to synchronise the two meters' readings. Even
 if the sensor fails, flow can still be estimated indirectly from fuel
 pressure and injector timing, though less accurately.
 
-> "Any device, system, or procedure, the purpose of which is to change
-> the temperature of the fuel-flow meter is forbidden."
-> — Nikolas Tombazis, FIA Single Seater Director [VERIFY SOURCE]
 
 The controller must keep energy flow rate (derived from mass flow ×
 fuel energy density) below the ceiling, while getting as close to it
