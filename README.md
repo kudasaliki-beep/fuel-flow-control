@@ -165,6 +165,39 @@ See `src/stage1.c` for the implementation.
 
 See `src/stage2.c` for the implementation.
 
+## Stage 3: Structs — Test Scenarios and Team Fuel Profiles
+ 
+**Goal:** replace the driver demand step and the fixed energy density  with structured, and in
+the fuel case, user-supplied data, using structures for the first
+time.
+ 
+**Test scenario struct:** `struct test_scenario1` holds
+`before_value`, `after_value`, `step_time`, and `name` (a driving
+scenario label). One instance, `scenario`, replaces Stage 1/2's
+hardcoded `0`/`80`/`5` step values directly, the loop's `if`/`else`
+now reads `scenario.before_value`, `scenario.after_value`, and
+`scenario.step_time` instead of bare numbers.
+ 
+**Team fuel struct and dynamic input:** `struct team` holds
+`name` and `fuel_energy_density`, filled interactively via `scanf` at
+the start of `main`. This removed the `#define ENERGY_DENSITY 42.0`
+constant. Every place that previously referenced `ENERGY_DENSITY` (`mass_flow_limit`
+calculation, `energy_flow` calculation) now reads
+`team.fuel_energy_density` instead.
+ 
+**Result:** running with real input (e.g. team name "Ferrari",
+fuel energy density 42.0) reproduces exactly the same output as
+Stage 2's  version — `ceiling_comparison` still lands at
+`0 MJ/h` after the step. 
+ 
 
+**Stretch goal, newly added: PID with feedback.** A PID
+controller could sit alongside (not replace) the current min-select
+limiter the hard limiter retained underneath as a safety backstop. Deferred. this is planned *after* Stage 4 (CSV logging/plotting), since PID's actual benefits (smooth response vs. a hard
+step) are best demonstrated visually once plotting exists.
+
+The intended architecture is a cascade: PID computes a desired mass flow each iteration from feedback error, and that value is passed straight into the existing, unchanged apply_fuel_limiter from Stage 2. Under normal operation the limiter should rarely engage, since a well-tuned PID stays under the ceiling on its own. The  challenge is integral windup: if PID's output is clamped by the limiter, PID itself has no knowledge of that and keeps accumulating integral error against a target it's not actually reaching, causing overshoot or sluggish response once conditions change. Solving this requires anti-windup — feeding the limiter's clamping action back to the PID rather than letting the two controllers run blind to each other.</mark>
+ 
+<mark>See `src/stage3.c` for the implementation.</mark>
 
 
