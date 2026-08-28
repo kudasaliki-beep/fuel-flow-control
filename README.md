@@ -200,4 +200,32 @@ The intended architecture is a cascade: PID computes a desired mass flow each it
  
 <mark>See `src/stage3.c` for the implementation.</mark>
 
+## Stage 4: CSV Logging
 
+**Goal:** write every iteration's results to a CSV file instead of
+only printing to the console, producing a dataset that can 
+be plotted.</mark>
+ 
+**Columns:** `elapsed_time, driver_demand, actual_mass_flow,
+energy_flow, ceiling_comparison, mass_flow_limit`. `mass_flow_limit`
+is repeated on every row (it's constant) specifically so it can be
+plotted as a horizontal reference line without needing a separate
+file or manual entry at plot time.
+ 
+**File I/O structure:** `fopen("results.csv", "w")` and the
+header-row `fprintf` both happen once, before the loop starts. The `NULL` check on `fopen`'s return value is included, since a failed file open would otherwise crash later with a confusing error rather than a clear one. A second `fprintf(pF,...)` call, using comma-separated `%f` values, sits inside the loop alongside the existing console `printf` writing one row per iteration. `fclose(pF)` runs once, after the loop ends.
+ 
+ 
+**Result:** running the program produces a 201-line CSV (1 header
++ 200 data rows) 
+
+Plotting `driver_demand`, `actual_mass_flow`, and `mass_flow_limit`
+against `elapsed_time` shows `actual_mass_flow` tracking demand
+exactly, then flattening precisely at the limit the instant it's
+reached, while `driver_demand` keeps rising past it 
+
+ A second plot of `energy_flow`
+against the 3,000 MJ/h ceiling shows the same result in the
+regulation's own units: energy flow rises then sits exactly flat at
+3,000,.
+See `src/stage4.c` for the implementation.
