@@ -29,7 +29,7 @@ struct team
 
 struct team team;
 
-
+/*fuel density can now be grouped with a specific team*/
 printf("Enter team name:");
 scanf("%s", team.name);
 
@@ -50,7 +50,9 @@ struct test_scenario1
 
 struct test_scenario1 scenario = { 0, 80, 5, "corner_exit, standard" };
 
-mass_flow_limit = CEILING / team.fuel_energy_density; 
+mass_flow_limit = CEILING / team.fuel_energy_density; /* PLANT = energy_flow = actual_mass_flow * team.fuel_energy_density*/
+
+
 
 for (x = 0; x < 200; x++) /* x = iterations, 1 iteration is 0.1ms */
 
@@ -59,13 +61,15 @@ for (x = 0; x < 200; x++) /* x = iterations, 1 iteration is 0.1ms */
     
     if ( elapsed_time < scenario.step_time) driver_demand = scenario.before_value; else driver_demand = scenario.after_value; /* driver demands 80 kg/h of fuel*/
 
-    
+
 actual_mass_flow = apply_fuel_limiter(driver_demand, mass_flow_limit); /* is the drivers request accepted or ignored? - uses function*/
 energy_flow = actual_mass_flow * team.fuel_energy_density;
 ceiling_comparison = energy_flow - CEILING;
 
 printf("driver demand: %fkg/h\n actual mass flow: %fkg/h\n" " energy flow: %fMJ/h\n ceiling comparison: %fMJ/h\n"  " elapsed time: %fms\n\n", driver_demand, actual_mass_flow, energy_flow, ceiling_comparison, elapsed_time);
     }
+
+
 
 
 

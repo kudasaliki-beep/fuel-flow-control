@@ -238,5 +238,65 @@ Uncontrolled comparison column: Stage 1 proved the failure mode existed, Stage 5
 
 Quantified result: across the 149 iterations after the step (80 kg/h demanded), uncontrolled_energy_flow holds steady at 3,360 MJ/h, energy_flow, the real controlled result, never exceeds 3,000 MJ/h on any iteration. Plotting both against elapsed_time on the same chart shows this directly.
 
+![Demand vs actual mass flow chart](images/limiter graph 2.png)
+![Energy Flow vs ceiling](images/limiter graph 2.png)
 
 See src/stage5.c for the implementation.
+
+## Stage 6: Driver Input Delay (Sigmoid Transition)
+
+**Goal:** replace the instant driver-demand step with a physically
+motivated transition, giving the plant imperfection for a
+future feedback controller to correct against.
+
+**note on scope:** the original research (Stage 1) described
+this stage as "a ramp function mimicking human foot speed". The S-curve (sigmoid) used here is a deliberate refinement, reasoned from how human muscle movement actually accelerates and decelerates rather than moving at constant speed.
+
+**Formula:**
+
+```
+driver_demand(t) = before_value + (after_value − before_value) / (1 + e^(−k(t − t_mid)))
+```
+
+Implemented directly, with no `if`/`else` branching: a
+sigmoid naturally settles near `before_value` long before `t_mid` and
+near `after_value` long after it, so no explicit "before/during/after"
+condition is needed the way the old instant step required.
+
+**Parameter derivation:**
+- `t_mid = 175ms` — the centre of a 150ms transition window that
+  starts at 100ms (100 + 75).
+- `k ≈ 0.067` — derived from the sigmoid's active region spanning
+  roughly `±5/k`; setting that equal to the desired ±75ms half-width
+  gives `k = 5/75 ≈ 0.067`.
+- Total simulated duration increased from 200 to 4,500 iterations
+  (20ms → 450ms), to fit 100ms settling before the transition, the
+  150ms transition itself, and 200ms settling after — the old 20ms
+  window couldn't contain a transition this wide.
+
+**New practical requirement:** `#include <math.h>` for `exp()`.
+Some systems (Linux/older GCC) require an explicit `-lm` linker flag
+(`gcc stage6.c -o stage6 -lm`) or the compile fails with `undefined
+reference to 'exp'`; not needed on this project's Windows/MinGW setup.
+
+**Result, verified at key checkpoints:** `driver_demand` sits near 0
+at t=0, hits exactly 40 (the true halfway point) at t=175ms
+confirming the formula, and approaches 80 by the end of the run.
+`actual_mass_flow` follows the same S-curve until it reaches
+`mass_flow_limit` (~71.4), at which point it flattens early while
+`driver_demand` keeps rising toward 80 — the limiter now visibly
+intervening partway through a gradual, physically-motivated rise
+rather than at an instant step.
+
+**Known simplification:** `t_mid` is currently a single hardcoded
+struct value (175), rather than derived from separate
+`before_duration`/`transition_duration` fields that would show the
+reasoning behind that number directly in code. Deferred as a minor
+refactor, not a correctness issue — the value itself has been
+manually verified against the derivation above.
+
+![Demand vs actual mass flow chart](images/limiter graph 2.png)
+
+See `src/stage6.c` for the implementation.
+
+![Driver demand s curve](images/driver demand curve.png)
