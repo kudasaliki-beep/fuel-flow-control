@@ -238,8 +238,8 @@ Uncontrolled comparison column: Stage 1 proved the failure mode existed, Stage 5
 
 Quantified result: across the 149 iterations after the step (80 kg/h demanded), uncontrolled_energy_flow holds steady at 3,360 MJ/h, energy_flow, the real controlled result, never exceeds 3,000 MJ/h on any iteration. Plotting both against elapsed_time on the same chart shows this directly.
 
-![Demand vs actual mass flow chart](images/limiter graph 2.png)
-![Energy Flow vs ceiling](images/limiter graph 2.png)
+![Demand vs actual mass flow chart](images/limiter_graph_2.png)
+![Energy Flow vs ceiling](images/limiter_graph_2.png)
 
 See src/stage5.c for the implementation.
 
@@ -295,8 +295,7 @@ reasoning behind that number directly in code. Deferred as a minor
 refactor, not a correctness issue — the value itself has been
 manually verified against the derivation above.
 
-![Demand vs actual mass flow chart](images/limiter graph 2.png)
 
 See `src/stage6.c` for the implementation.
 
-![Driver demand s curve](images/driver demand curve.png)
+![Driver demand s curve](images/driver_demand_curve.png)
