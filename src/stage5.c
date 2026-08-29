@@ -1,4 +1,4 @@
-/* Stage 4
+/* Stage 5
  */
 
 #include <stdio.h>
@@ -87,9 +87,3 @@ fprintf(pF, "%f,%f,%f,%f,%f,%f,%f\n",elapsed_time,driver_demand,actual_mass_flow
 
     return 0;
 }
-
-
-
-
-
-

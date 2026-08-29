@@ -196,15 +196,15 @@ controller could sit alongside (not replace) the current min-select
 limiter the hard limiter retained underneath as a safety backstop. Deferred. this is planned *after* Stage 4 (CSV logging/plotting), since PID's actual benefits (smooth response vs. a hard
 step) are best demonstrated visually once plotting exists.
 
-The intended architecture is a cascade: PID computes a desired mass flow each iteration from feedback error, and that value is passed straight into the existing, unchanged apply_fuel_limiter from Stage 2. Under normal operation the limiter should rarely engage, since a well-tuned PID stays under the ceiling on its own. The  challenge is integral windup: if PID's output is clamped by the limiter, PID itself has no knowledge of that and keeps accumulating integral error against a target it's not actually reaching, causing overshoot or sluggish response once conditions change. Solving this requires anti-windup — feeding the limiter's clamping action back to the PID rather than letting the two controllers run blind to each other.</mark>
+The intended architecture is a cascade: PID computes a desired mass flow each iteration from feedback error, and that value is passed straight into the existing, unchanged apply_fuel_limiter from Stage 2. Under normal operation the limiter should rarely engage, since a well-tuned PID stays under the ceiling on its own. The  challenge is integral windup: if PID's output is clamped by the limiter, PID itself has no knowledge of that and keeps accumulating integral error against a target it's not actually reaching, causing overshoot or sluggish response once conditions change. Solving this requires anti-windup — feeding the limiter's clamping action back to the PID rather than letting the two controllers run blind to each other.
  
-<mark>See `src/stage3.c` for the implementation.</mark>
+See `src/stage3.c` for the implementation.
 
 ## Stage 4: CSV Logging
 
 **Goal:** write every iteration's results to a CSV file instead of
 only printing to the console, producing a dataset that can 
-be plotted.</mark>
+be plotted.
  
 **Columns:** `elapsed_time, driver_demand, actual_mass_flow,
 energy_flow, ceiling_comparison, mass_flow_limit`. `mass_flow_limit`
@@ -229,3 +229,14 @@ against the 3,000 MJ/h ceiling shows the same result in the
 regulation's own units: energy flow rises then sits exactly flat at
 3,000,.
 See `src/stage4.c` for the implementation.
+
+## Stage 5: Comparison, Verification, and Write-Up
+
+Goal: bring the uncontrolled and controlled results into a single, directly comparable dataset.
+
+Uncontrolled comparison column: Stage 1 proved the failure mode existed, Stage 5 adds uncontrolled_energy_flow = driver_demand ×  team.fuel_energy_density, it represents "what would have happened with no controller."
+
+Quantified result: across the 149 iterations after the step (80 kg/h demanded), uncontrolled_energy_flow holds steady at 3,360 MJ/h, energy_flow, the real controlled result, never exceeds 3,000 MJ/h on any iteration. Plotting both against elapsed_time on the same chart shows this directly.
+
+
+See src/stage5.c for the implementation.
