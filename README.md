@@ -258,6 +258,18 @@ this stage as "a ramp function mimicking human foot speed". The S-curve (sigmoid
 driver_demand(t) = before_value + (after_value − before_value) / (1 + e^(−k(t − t_mid)))
 ```
 
+This is a first-order step-response equation,it models the throttle responding gradually to a driver's demand, rather than instantly reaching it.
+
+| Term           | F1 interpretation                                      |
+| -------------- | ------------------------------------------------------ |
+| `before_value` | Driver's fuel demand **before** the change             |
+| `after_value`  | Driver's fuel demand **after** the change              |
+| `t`            | Time                                                   |
+| `t_mid`        | Time at which the change is **half complete**          |
+| `k`            | How **quickly/aggressively** the driver changes demand |
+| `e`            | Euler's number ≈ 2.718                                 |
+
+
 Implemented directly, with no `if`/`else` branching: a
 sigmoid naturally settles near `before_value` long before `t_mid` and
 near `after_value` long after it, so no explicit "before/during/after"
@@ -299,3 +311,80 @@ manually verified against the derivation above.
 See `src/stage6.c` for the implementation.
 
 ![Driver demand s curve](images/driver_demand_curve.png)
+
+## Stage 7: Actuator Lag (Discrete First-Order Filter)
+
+**Goal:** model the fuel system's physical inability to instantly
+match driver demand (the actuator lag stage from the original
+multi-stage research) giving the plant a second source of
+imperfection on top of Stage 6's sigmoid curve.
+
+- Renamed the limiter's parameter from `driver_demand` to `requested_mass_flow` once Stage 7 began feeding it lagged_demand instead
+
+Originally, I had found a researched formula, `Actual Throttle(t) = Driver
+Demand(t) × (1 − e^(−t/τ))`, 
+
+| Term                 | Meaning                                                          |
+| -------------------- | ---------------------------------------------------------------- |
+| `Driver Demand(t)`   | What throttle level the driver is requesting                     |
+| `Actual Throttle(t)` | What the engine/throttle actually achieves                       |
+| `t`                  | Time since the throttle command/step began                       |
+| `τ`                  | **Time constant** — determines how quickly the throttle responds |
+| \(1-e^{-t/\tau}\)    | The response of a first-order system                             |
+
+
+but it assumes demand is a step at t=0. Since
+Stage 6 replaced the step with a continuously-changing sigmoid, that
+formula no longer applies as-is. Instead, this stage uses a discrete
+first-order lag filter, recalculated every iteration from its own
+previous value:
+
+```
+lagged_demand = lagged_demand + (dt / tau) × (driver_demand − lagged_demand)
+```
+
+| Term                            | Meaning                                                 |
+| ------------------------------- | ------------------------------------------------------------------------------ |
+| `lagged_demand`                 | The current fuel demand after accounting for the response lag                  |
+| `dt`                            | The simulation time step — the amount of time between each calculation         |
+| `tau`                           | The time constant — determines how quickly `lagged_demand` responds to changes |
+| `driver_demand`                 | The fuel demand requested by the driver, calculated from the sigmoid curve     |
+| `driver_demand − lagged_demand` | The difference between what the driver wants and the current lagged demand     |
+| `dt / tau`                      | The proportion of this difference applied during each timestep                 |
+
+
+
+
+
+- every prior value (elapsed_time, driver_demand, energy_flow) was
+recalculated fresh each iteration with no memory of the past.
+`lagged_demand` is different: it's initialised once, before the loop
+(`lagged_demand = scenario.before_value;`), then updated in place
+each iteration, reading its own prior value on the right-hand side
+before being overwritten. 
+
+**Pipeline, updated:** `driver_demand` (sigmoid) → `lagged_demand`
+(actuator lag, this stage) → `apply_fuel_limiter` (unchanged from
+Stage 2) → `actual_mass_flow`. The limiter now acts on `lagged_demand`,
+not raw `driver_demand`.
+
+![Driver demand, actuator lag, and limiter](images/driver_demand_actuator_lag_limiter.png)
+
+<mark>**`tau` value:** no official FIA
+figure exists for actuator response time. `tau ≈ 4ms` is used, will likely change in the future with more research.</mark>
+
+
+**Result, verified at t = t_mid (175ms):** `driver_demand = 40.0`
+(exactly halfway, confirming the sigmoid is unaffected), while
+`actual_mass_flow = 34.94` shows it is trailing behind, not matching
+instantly. By t = 250ms the limiter engages and `actual_mass_flow`
+flattens at ~71.4, same as every prior stage from that point on.
+
+**Note on `uncontrolled_energy_flow`'s meaning shifting:**
+this column still uses raw `driver_demand` (per its Stage 5
+definition), so from this stage onward it represents "no limiter *and*
+no actuator lag" — a slightly different baseline than before, since
+actuator lag now sits between demand and the limiter for the
+*controlled* result. 
+
+See `src/stage7.c` for the implementation.

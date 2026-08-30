@@ -1,26 +1,27 @@
-/* Stage 6 + stretch goals
- */
+/* Stage 7
+simulation of a driver requesting 80kg/h of fuel during a corner exit, with an energy limit 0f 3000 MJ/h
+*/
 
 #include <stdio.h>
 #include <math.h>
+
+#define tau 4 /*ms*/
 
 
 #define dt 0.1 /*ms*/
 #define CEILING      3000.0   /* MJ/h, F1 2026 energy flow limit */
 
-double apply_fuel_limiter(double driver_demand, double mass_flow_limit)
-
+double apply_fuel_limiter(double requested_mass_flow, double mass_flow_limit)
 {
-    if (driver_demand > mass_flow_limit)
+    if (requested_mass_flow > mass_flow_limit)
         return mass_flow_limit;
-
     else
-     return driver_demand;  
+        return requested_mass_flow;
 }
 
 int main(void)
 {
-double energy_flow, uncontrolled_energy_flow, ceiling_comparison, driver_demand, x, elapsed_time, mass_flow_limit, actual_mass_flow ;
+double lagged_demand, energy_flow, uncontrolled_energy_flow, ceiling_comparison, driver_demand, x, elapsed_time, mass_flow_limit, actual_mass_flow ;
 
 
 
@@ -51,7 +52,7 @@ struct test_scenario1
   char name [50];
 };
 
-struct test_scenario1 scenario = { 0, 80, 5, "corner_exit, standard" };
+struct test_scenario1 scenario = { 0, 80, 175, "corner_exit, standard" };
 
 mass_flow_limit = CEILING / team.fuel_energy_density; /* PLANT = energy_flow = actual_mass_flow * team.fuel_energy_density*/
 
@@ -63,16 +64,18 @@ if (pF == NULL) {
 }
 
 
-fprintf(pF,"elapsed_time,driver_demand,actual_mass_flow,energy_flow, uncontrolled_energy_flow, ceiling_comparison,mass_flow_limit\n");
+fprintf(pF,"elapsed_time,driver_demand,lagged_demand,actual_mass_flow,energy_flow, uncontrolled_energy_flow, ceiling_comparison,mass_flow_limit\n");;
+lagged_demand = scenario.before_value;
 for (x = 0; x < 4500; x++) /* x = iterations, 1 iteration is 0.1ms */
 
    { 
     elapsed_time = x * dt;
     
-    driver_demand = scenario.before_value + (scenario.after_value - scenario.before_value) / (1 + exp(-0.067 * (elapsed_time - scenario.tmid))); /* driver demands 80 kg/h of fuel*/
+    driver_demand = scenario.before_value + (scenario.after_value - scenario.before_value) / (1 + exp(-0.067 * (elapsed_time - scenario.tmid))); /* sigmoid driver demand transition from before_value to after_value */
+   
+ lagged_demand = lagged_demand + (dt / tau) * (driver_demand - lagged_demand);
 
-
-actual_mass_flow = apply_fuel_limiter(driver_demand, mass_flow_limit); /* is the drivers request accepted or ignored? - uses function*/
+actual_mass_flow = apply_fuel_limiter(lagged_demand, mass_flow_limit); /* is the drivers request accepted or ignored? - calls function, lagged_demand == requested_mass_flow */
 energy_flow = actual_mass_flow * team.fuel_energy_density;
 
 uncontrolled_energy_flow = driver_demand * team.fuel_energy_density;
@@ -80,7 +83,7 @@ uncontrolled_energy_flow = driver_demand * team.fuel_energy_density;
 ceiling_comparison = energy_flow - CEILING;
 
 printf("driver demand: %fkg/h\n actual mass flow: %fkg/h\n" " energy flow: %fMJ/h\n ceiling comparison: %fMJ/h\n"  " elapsed time: %fms\n\n", driver_demand, actual_mass_flow, energy_flow, ceiling_comparison, elapsed_time);
-fprintf(pF, "%f,%f,%f,%f,%f,%f,%f\n",elapsed_time,driver_demand,actual_mass_flow,energy_flow, uncontrolled_energy_flow, ceiling_comparison,mass_flow_limit);
+fprintf(pF, "%f,%f,%f,%f,%f,%f,%f,%f\n",elapsed_time,driver_demand,lagged_demand,actual_mass_flow,energy_flow, uncontrolled_energy_flow, ceiling_comparison,mass_flow_limit);
     }
 
  fclose(pF);  
@@ -89,4 +92,3 @@ fprintf(pF, "%f,%f,%f,%f,%f,%f,%f\n",elapsed_time,driver_demand,actual_mass_flow
 
     return 0;
 }
-
