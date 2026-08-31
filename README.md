@@ -238,7 +238,7 @@ Uncontrolled comparison column: Stage 1 proved the failure mode existed, Stage 5
 
 Quantified result: across the 149 iterations after the step (80 kg/h demanded), uncontrolled_energy_flow holds steady at 3,360 MJ/h, energy_flow, the real controlled result, never exceeds 3,000 MJ/h on any iteration. Plotting both against elapsed_time on the same chart shows this directly.
 
-![Demand vs actual mass flow chart](images/limiter_graph_2.png)
+![Demand vs actual mass flow chart](images/limiter_graph_1.png)
 ![Energy Flow vs ceiling](images/limiter_graph_2.png)
 
 See src/stage5.c for the implementation.
@@ -388,3 +388,54 @@ actuator lag now sits between demand and the limiter for the
 *controlled* result. 
 
 See `src/stage7.c` for the implementation.
+
+## Stage 8: Torque Delay (Fixed-Duration Buffer)
+
+**Goal:** model the remaining piece of the multi-stage
+lag chain: time between the actuator reaching a position and
+that actually producing engine torque (air travel, fuel mixing,
+combustion, mechanical force transfer).
+
+**Actuator lag vs. torque delay difference:**
+
+| | Actuator lag (Stage 7) | Torque delay (Stage 8) |
+|---|---|---|
+| **What it represents** | The fuel system physically catching up to what's being commanded | time taken for Air travel to pass, mixing, combustion, and mechanical force transfer, once the actuator/valve has ALREADY moved/opened.|
+| **Effect on the signal** | *Reshapes* it: smooths and slows the approach toward a target | *Shifts* it: same values, just later in time |
+| **Mechanism** | single running variable, nudged a fraction of the way toward the target each iteration | A 30-slot buffer, storing and replaying past values unchanged |
+
+
+**In short:** `torque_delayed` right now is exactly `lagged_demand` from
+3ms ago, a pure time-shift stacked *after* actuator lag
+has already reshaped the signal. 
+
+**Why this needed arrays** a true dead-time delay must recall a specific past
+value (`lagged_demand` from exactly N iterations ago), which a single
+variable cannot do. This required a fixed-size buffer (`double buffer[30]`).
+
+**Mechanism — a shift register, three steps per iteration, in a
+specific order:**
+```c
+torque_delayed = buffer[29];              /* 1. read the oldest, before it's overwritten */
+
+for (i = 29; i > 0; i--) {
+    buffer[i] = buffer[i - 1];            /* 2. shift every value one slot older */
+}
+buffer[0] = lagged_demand;                /* 3. write today's value into the newest slot */
+```
+Order matters: reading before shifting/writing prevents the oldest
+value from being overwritten before it's captured.
+
+**Buffer size:** 30 slots, from 3ms (the midpoint of the researched
+2-5ms torque delay range) ÷ 0.1ms.
+
+
+**Result:** `torque_delayed` at t=175ms exactly equals
+`lagged_demand` at t=172ms (31.098859 both times),
+confirming the delay is precise. The full pipeline
+is now `driver_demand` → `lagged_demand` → `torque_delayed` →
+`apply_fuel_limiter` → `actual_mass_flow`.
+
+![Full pipeline: demand, lag, delay, limiter](images/added_torque_delay.png)
+
+See `src/stage8.c` for the implementation.
