@@ -486,7 +486,7 @@ throughout the run, both smoothly converging on `mass_flow_limit`
 (71.428 vs. target 71.429) with no oscillation and no overshoot at
 any point in the simulation.
 
-![PID output only](images/pid_outputs.png)
+![PID output only](images/pid_output.png)
 
 **Why `pid_output` dips before converging:** while `torque_delayed`
 is still winning the min-select,
