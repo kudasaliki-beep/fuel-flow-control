@@ -439,3 +439,67 @@ is now `driver_demand` → `lagged_demand` → `torque_delayed` →
 ![Full pipeline: demand, lag, delay, limiter](images/added_torque_delay.png)
 
 See `src/stage8.c` for the implementation.
+
+## Stage 9: PID Governor with Min-Select and Anti-Windup
+
+**Goal:** replace the static hard ceiling with a smooth, anticipatory
+controller that tracks the ceiling continuously, while keeping the
+original min-select (choose the lower value) architecture and hard limiter intact 
+it as a safety backstop.
+
+**Architecture:** PID computes a candidate mass flow each iteration
+from feedback error (`mass_flow_limit − previous_actual_mass_flow`),
+kept in mass flow units throughout for consistency with the rest of
+the controller chain. This candidate
+competes against `torque_delayed` via `apply_fuel_limiter`, since it's just "return whichever value is smaller,"
+regardless of what's being compared. The result of that comparison
+is then passed through `apply_fuel_limiter` a second time against the
+static `mass_flow_limit`, as a hard backstop against
+overshoot from bad tuning or edge cases.
+
+**Anti-windup:** the integral term only accumulates when PID's own
+output is the one winning the min-select
+(`pid_output <= torque_delayed`), otherwise it's frozen. Without
+this, the integral would grow unboundedly whenever driver demand is
+comfortably under the ceiling (which is most of the time), since
+error stays positive the whole time even though PID isn't influencing
+the output at all.
+
+**The tuning process:**
+
+| Attempt | Gains | Result |
+|---|---|---|
+| 1 | Kp=1.0, Ki=0.01, Kd=0 | Stable, but never converges, still 63kg/h short of the ceiling after 450ms |
+| 2 | Kp=3.0, Ki=0.1, Kd=0 | Unstable, bouncing between two extremes every single iteration |
+| 3 | Kp=1.5, Ki=0.05, Kd=0.5 | adding derivative amplified the oscillation's sharp jumps into a `-inf` overflow ("derivative kick") |
+| 4 | **Kp=0.3, Ki=0.05, Kd=0** | **Stable, converges to within 0.001 of the target, zero overshoot** |
+
+
+**Why `Kd = 0` turned out to be correct:** two
+reasons. First, once `Kp` was correctly sized, there was no residual
+overshoot left for derivative damping to usefully suppress. Second,
+the plant already has built-in smoothing from Stages 7–8 (actuator
+lag, torque delay). 
+
+**Result:** `actual_mass_flow` tracks `pid_output` almost exactly
+throughout the run, both smoothly converging on `mass_flow_limit`
+(71.428 vs. target 71.429) with no oscillation and no overshoot at
+any point in the simulation.
+
+![PID output only](images/pid_outputs.png)
+
+**Why `pid_output` dips before converging:** while `torque_delayed`
+is still winning the min-select,
+`previous_actual_mass_flow` tracks the rising demand from the driver, so
+`error = mass_flow_limit − previous_actual_mass_flow` naturally
+shrinks. Since anti-windup is correctly freezing `integral`
+during this stretch (PID isn't in control yet), `pid_output` is
+almost entirely `Kp × error`, so it shrinks right along with the
+error. Once `pid_output` finally drops below `torque_delayed`, and becomes the main candidate from min select, PID
+takes over, `integral` starts accumulating again, and the curve
+turns upward toward the ceiling. .
+
+
+![PID governor smooth convergence](images/pid_outputs_response_w_torque_delay.png)
+
+See `src/stage9.c` for the implementation.
