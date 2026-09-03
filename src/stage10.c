@@ -1,5 +1,9 @@
-/* Stage 9
+/* Stage 10
 simulation of a driver requesting 80kg/h of fuel during a corner exit, with an energy limit 0f 3000 MJ/h
+
+●	Source: FastF1 Python library, reading the FIA public timing/telemetry feed
+●	Session: 2023 Monaco Grand Prix, 
+●	Lap 7, Turn 7 (Portier), tight right-hander leading onto the tunnel straight.
 */
 
 #include <stdio.h>
@@ -33,6 +37,8 @@ ceiling_comparison, driver_demand, x, elapsed_time, mass_flow_limit, actual_mass
 
 int i;
 
+
+double rpm, dynamic_ceiling;
 
 
 struct team
@@ -68,8 +74,6 @@ struct test_scenario1 scenario = { 0, 80, 175, "corner_exit, standard" };
 
 /* options for future test scenarios - struct test_scenario1 etc*/
 
-mass_flow_limit = CEILING / team.fuel_energy_density; /* PLANT = energy_flow = actual_mass_flow * team.fuel_energy_density*/
-
 FILE *pF = fopen ("results.csv", "w");
 
 if (pF == NULL) {
@@ -78,12 +82,12 @@ if (pF == NULL) {
 }
 
 
-fprintf(pF,"elapsed_time,driver_demand,lagged_demand,torque_delayed,pid_output,candidate_mass_flow,actual_mass_flow,energy_flow,uncontrolled_energy_flow,ceiling_comparison,mass_flow_limit\n");
+fprintf(pF,"elapsed_time,driver_demand,lagged_demand,torque_delayed,pid_output,candidate_mass_flow,actual_mass_flow,energy_flow,uncontrolled_energy_flow,ceiling_comparison,mass_flow_limit,rpm,dynamic_ceiling\n");
 
 integral = 0; /* integral starts at 0*/
 previous_error = 0;
 
-
+rpm = 4000;
 
 previous_actual_mass_flow = scenario.before_value;
 
@@ -101,6 +105,17 @@ for (x = 0; x < 4500; x++) /* x = iterations, 1 iteration is 0.1ms */
     driver_demand = scenario.before_value + (scenario.after_value - scenario.before_value) / (1 + exp(-0.067 * (elapsed_time - scenario.tmid))); /* sigmoid driver demand transition from before_value to after_value */
    
  lagged_demand = lagged_demand + (dt / tau) * (driver_demand - lagged_demand); 
+
+rpm = rpm + (2080.3 * (driver_demand / 80.0)) * (dt / 1000.0);
+
+ /*CALCULATE THE DYNAMIC 2026 FIA ENERGY CEILING*/
+    if (rpm < 10500.0) {
+        dynamic_ceiling = (0.27 * rpm) + 165.0; 
+    } else {
+        dynamic_ceiling = CEILING;               
+    }
+
+mass_flow_limit = dynamic_ceiling / team.fuel_energy_density;
 
 /* torque delay - air travel, fuel mixing, combustion, and mechanical force transfer downstream of the actuator; buffer holds a rolling history of lagged_demand, delayed by BUFFER_SIZE iterations. 
 lagged_demand feeds directly into torque_delayed: it's the exact same value experienced 30 iterations later(3ms, 3/dt or 3/0.1 = 30 iterations). It's simply a timeshift of lagged_demand so is the new result of driver demand. As for the value 3ms I just picked 3ms as researched torque delay tends to be 2-5ms*/
@@ -131,10 +146,10 @@ energy_flow = actual_mass_flow * team.fuel_energy_density;
 
 uncontrolled_energy_flow = driver_demand * team.fuel_energy_density;
 
-ceiling_comparison = energy_flow - CEILING;
+ceiling_comparison = energy_flow - dynamic_ceiling;
 
 printf("driver demand: %fkg/h\n actual mass flow: %fkg/h\n" " energy flow: %fMJ/h\n ceiling comparison: %fMJ/h\n"  " elapsed time: %fms\n\n", driver_demand, actual_mass_flow, energy_flow, ceiling_comparison, elapsed_time); /* prints to terminal only*/
-fprintf(pF, "%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",elapsed_time,driver_demand,lagged_demand,torque_delayed,pid_output,candidate_mass_flow,actual_mass_flow,energy_flow,uncontrolled_energy_flow,ceiling_comparison,mass_flow_limit);
+fprintf(pF, "%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",elapsed_time,driver_demand,lagged_demand,torque_delayed,pid_output,candidate_mass_flow,actual_mass_flow,energy_flow,uncontrolled_energy_flow,ceiling_comparison,mass_flow_limit,rpm,dynamic_ceiling);
     
 previous_actual_mass_flow = actual_mass_flow;
 previous_error = error;

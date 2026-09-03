@@ -96,7 +96,7 @@ then compare against the ceiling.
 - Energy density treated as a single fixed constant.
 - No unit conversion complexity (all values already in per-hour terms).
 
-**Sanity check:** 70 kg/h × 42 MJ/kg = 2,940 MJ/h → −60 MJ/h vs.
+**check:** 70 kg/h × 42 MJ/kg = 2,940 MJ/h → −60 MJ/h vs.
 ceiling (safely under). Matches `src/stage0.c` output.
 
 See `src/stage0.c` for the implementation.
@@ -119,8 +119,7 @@ refinement, but is **not yet implemented at stage 1**
 (20 ms total simulated time). Mass flow is 0 kg/h for the first 5 ms
 (simulating coasting e.g releasing pedal before a break zone to reserve fuel), then steps to a fixed high value at the 5 ms mark for the remaining 15 ms.
 
-**Step-change value — deliberately unrealistic, and labelled as
-such:** the real 2026 target mass flow (~70 kg/h) does *not* violate
+**Step-change value:** the real 2026 target mass flow (~70 kg/h) does *not* violate
 the ceiling on its own (70 × 42 = 2,940 MJ/h) so it can't demonstrate a failure by
 itself. Stage 1 instead uses **80 kg/h**, a value chosen specifically
 showing that a mass flow rate  too high leads to a ceiling violation, which will be addressed in stage 2.
@@ -144,7 +143,7 @@ See `src/stage1.c` for the implementation.
 
 ## Stage 2: Fuel Limiter (Min-Select Control Logic)
 
-**Goal:** add a controller that prevents the ceiling violation Stage 1 demonstrated, by capping the mass flow that's actually used rather than letting driver demand pass through.
+**Goal:** add a limiter that prevents the ceiling violation Stage 1 demonstrated, by capping the mass flow that's actually used rather than letting driver demand pass through.
 
 **Variable change:** Renamed mass_flow to driver_demand, so the signature itself makes clear it's the pre-limit requested value from the drive pressing the pedal.
 
@@ -503,3 +502,93 @@ turns upward toward the ceiling. .
 ![PID governor smooth convergence](images/pid_outputs_response_w_torque_delay.png)
 
 See `src/stage9.c` for the implementation.
+
+## Stage 10: RPM-Dependent Regulatory Limit
+
+**Goal:** replace the flat 3,000 MJ/h ceiling with the verified
+FIA formula: a lower limit at low engine RPM (Article 5.4.4).
+
+**Architecture, reusing existing pieces:**
+```c
+if (rpm < 10500.0) {
+    dynamic_ceiling = (0.27 * rpm) + 165.0;
+} else {
+    dynamic_ceiling = CEILING;               /* the flat 3,000 hard cap */
+}
+mass_flow_limit = dynamic_ceiling / team.fuel_energy_density;
+```
+
+**Modelling `rpm`:** the first approach considered (RPM lagging toward
+a demand-based target, reusing Stage 7's actuator-lag technique) was
+rejected after real telemetry showed engine RPM doesn't behave that
+way once a car is in gear, it's mechanically tied to wheel speed and
+rises continuously under sustained demand. The model instead treats RPM as accumulating over time,
+at a rate proportional to demand:
+```c
+rpm = rpm + (2080.3 * (driver_demand / 80.0)) * (dt / 1000.0);
+```
+**This project's RPM model is a simplification the data itself doesn't fully support** 
+The implementation assumes RPM
+accumulates at a rate proportional to driver demand
+(`rate × (driver_demand / 80)`), but real telemetry shows this isn't
+how RPM actually behave, the interval-by-interval rates within the
+Monaco sample don't track throttle percentage cleanly at all (see the
+noise note below). The proportional-to-demand model is kept as a defensible, simple
+approximation because properly modelling the real relationship would require tracking gear
+selection, which is out of scope for this project for the forseable future
+
+
+
+The implemented rate (2,080.3 RPM/s) is the overall average rise rate
+across a partial-throttle corner-exit: race 2023 Monaco GP,
+Verstappen, Turn 7 (Portier), sourced via the FastF1 Python library
+(data extraction performed using Claude Code). RPM rose from 6,686 to
+9,848 over 1.52 seconds as throttle was applied from ~1% to 68%, all
+in a single gear (2nd) .
+
+
+
+**real telemetry is noisier than a single number suggests:** interval-by-interval rates within the Monaco sample swing
+from 0 to over 4,300 RPM/s, including one brief negative reading —
+genuine mechanical and measurement noise at ~150-300ms sampling
+intervals. The 2,080.3 RPM/s figure is the *overall average* across
+the full application window, not a smooth, per-instant true rate.
+
+**`rpm_idle`:**
+Article 5.15.4 caps idle speed control at 4,000 RPM. This was
+independently cross-checked against real F1 car telemetry, sourced
+from the OpenF1 API (`api.openf1.org`) — a stationary engine sample
+(2023 Singapore GP, driver 55) showed  idle RPM settling in the
+3,900-4,150 range, closely matching the regulatory figure. `rpm` is
+initialised to `4000` at the start of the scenario on this basis.
+
+**Data sources: FastF1 (github.com/theOehrly/Fast-F1), reading FIA public timing/telemetry; OpenF1 (openf1.org), an independent open-source API .**
+
+**Known assumptions, consolidated:** this simulation now mixes
+verified data with deliberate, stated assumptions:
+- **Verified:** RPM idle (4,000, cross-checked against real
+  telemetry), RPM rise rate (2,080.3 RPM/s, measured from real
+  partial-throttle corner-exit telemetry, 2nd-gear-specific, both energy flow formulas (verified
+  against the primary FIA regulations).
+- **Assumed:** driver demand peak (80 kg/h — a deliberate
+  stress-test value from Stage 1; fuel flow itself isn't
+  public telemetry data, so this was never independently verifiable).
+  Fuel energy density: 42.0 MJ/kg, test value used throughout
+  the project; the FIA's real regulated LHV range is 38.0-41.0 MJ/kg,
+  so this sits slightly outside the true spec.
+
+**Result:** across this entire 450ms corner-exit scenario, RPM rises
+from 4,000 to 4,572. Consequently, `dynamic_ceiling` never exceeds ~1,399 MJ/h,
+and the flat 3,000 MJ/h hard cap never becomes the binding constraint
+anywhere in this scenario. This is a quantitative demonstration of the formula's
+own stated purpose (Article 5.4.4 exists specifically "to control
+low-speed acceleration and corner-exit traction"), during a brief,
+low-RPM acceleration burst, the RPM-dependent limit does the real
+regulatory work, not the flat ceiling. PID converges correctly against
+this steeper, dynamic target (`actual_mass_flow` reaches 33.05 against
+a limit of 33.32 by the end), with zero ceiling violations throughout.
+
+![Actual mass flow vs dynamic RPM-based limit](images/stage10_mass_flow_vs_limit.png)
+![Engine RPM over the scenario](images/stage10_rpm.png)
+
+See `src/stage10.c` for the implementation.
